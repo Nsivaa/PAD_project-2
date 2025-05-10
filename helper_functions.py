@@ -43,7 +43,9 @@ def load_and_preprocess_corpus(dir_path: str, special_chars: "list[str]" = None)
                 except IndexError as ie:
                    pass
             corpus += document
-    return corpus
+    corpus = corpus.split(" ")
+    return [word for word in corpus if word != "" and word != "\n"]
+     
 
 def is_previous_substring_capitalized(corpus: str, index: int) -> bool:
     """
@@ -63,7 +65,7 @@ def is_previous_substring_capitalized(corpus: str, index: int) -> bool:
         index -= 1
     return is_upper
 
-def find_frequencies(corpus: str):
+def find_words_frequencies(corpus: str):
     """
     Finds the frequency of each word in the corpus, showing progress bar.
     
@@ -75,12 +77,8 @@ def find_frequencies(corpus: str):
 
     word_counter = {}
     # Tokenize each sentence (based on whitespace) and update the frequency count
-    words = corpus.split(" ")
-    for word in words:
+    for word in corpus:
         # ignore newline characters
-        if word == "\n":
-            continue
-
         if word in word_counter.keys():
             word_counter[word] += 1
         else:
