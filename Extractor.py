@@ -18,19 +18,18 @@ class Extractor:
         """
         for i in tqdm(range(2, self.n_max + 1), desc=f"Finding n-grams"):
             #for j in tqdm(range(0, len(self.corpus) - i + 1), mininterval=50000, unit="n-gram", desc=f"Finding n-grams of size {i} in corpus"):
-            for j in tqdm(range(0, 5000), mininterval=50000, unit="n-grams", desc=f"Finding n-grams of size {i} in corpus"):
+            for j in tqdm(range(0, 50), mininterval=50000, unit="n-grams", desc=f"Finding n-grams of size {i} in corpus"):
 
                 n_gram = NGram(n = i, words =  tuple(self.corpus[j:j + i]))
                 if n_gram not in self.n_grams:
                     self.n_grams.append(n_gram)
 
-    def find_n_grams_frequencies(self, corpus: str):
+    def find_n_grams_frequencies(self):
         """
         Generates n-gram objects with n from 2 to n_max and finds their frequencies in the corpus.
         """
-        for n_gram in tqdm(self.n_grams, unit="n-gram", desc=f"Finding n-grams frequencies"):
-            n_gram.find_frequency(corpus)
-            self.n_grams.append(n_gram)
+        for n_gram in tqdm(self.n_grams, unit="n-grams", desc=f"Finding n-grams frequencies"):
+            n_gram.find_frequency(self.corpus)
 
     def __str__(self) -> str:
         """

@@ -13,16 +13,14 @@ class NGram:
         Params:
             corpus (str): The text corpus to analyze.
         """
-        # Tokenize the corpus into words
-        tokens = corpus.split(" ")
+
         # Iterate over the words and count the frequency of the n-gram
-        for i in tqdm(range(len(tokens) - self.n + 1), mininterval=100):
-            n_gram = " ".join(self.words.keys())
+        for i in range(len(corpus) - self.n + 1):
+            n_gram = " ".join(self.words)
             # Check if the n-gram is present in the tokens
-            if n_gram == " ".join(tokens[i:i + self.n]):
+            if n_gram == " ".join(corpus[i:i + self.n]):
                 self.frequency += 1
-                for word in tokens[i:i + self.n]:
-                    self.words[word] += 1
+
 
     def __str__(self) -> str:
         """
