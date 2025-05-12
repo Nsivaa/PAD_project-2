@@ -10,7 +10,7 @@ class Extractor:
         self.corpus = corpus
         self.n_max = n_max
         self.n_grams = []
-        self.find_n_grams() # n-grams sorted by cohesion
+        self.find_n_grams() 
 
     def find_n_grams(self):
         """
@@ -19,7 +19,6 @@ class Extractor:
         for i in tqdm(range(2, self.n_max + 1), desc=f"Finding n-grams"):
             #for j in tqdm(range(0, len(self.corpus) - i + 1), mininterval=50000, unit="n-gram", desc=f"Finding n-grams of size {i} in corpus"):
             for j in tqdm(range(0, 50), mininterval=50000, unit="n-grams", desc=f"Finding n-grams of size {i} in corpus"):
-
                 n_gram = NGram(n = i, words =  tuple(self.corpus[j:j + i]))
                 if n_gram not in self.n_grams:
                     self.n_grams.append(n_gram)

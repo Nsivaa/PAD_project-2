@@ -1,6 +1,10 @@
 from collections import Counter
 from tqdm import tqdm
 import os
+from enum import Enum, auto
+
+
+
 
 def load_and_preprocess_corpus(dir_path: str, special_chars: "list[str]" = None):
     """
