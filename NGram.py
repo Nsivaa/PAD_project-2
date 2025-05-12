@@ -3,9 +3,7 @@ from enum import Enum, auto
 
 
 class NGram:
-    def __init__(self, n, words: tuple):
-        self.n = n
-        self.words = words
+    def __init__(self):
         self.frequency = 0
         self.cohesion = 0
 
@@ -70,4 +68,4 @@ class NGram:
         """
         Returns a string representation of the n-gram object.
         """
-        return f"NGram(n = {self.n}, words = {self.words}, frequency={self.frequency}, cohesion={self.cohesion})"
+        return f"frequency={self.frequency}, cohesion={self.cohesion})"
