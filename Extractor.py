@@ -1,6 +1,9 @@
-from NGram import NGram
+from NGramData import NGramData
 from tqdm import tqdm
 from collections import defaultdict
+from enum import Enum, auto
+
+
 class Extractor:
     """
     The Extractor class is responsible for extracting n-grams from a given corpus.
@@ -10,38 +13,95 @@ class Extractor:
     the n-gram in O(1) by dictionary look-up on the words tuple.
     """
 
-    def __init__(self, corpus, n_max: int = 7):
+    def __init__(self, corpus, n_max: int = 7, limit: int = None):
+        
         self.corpus = corpus
+        self.corpus_size = len(corpus)
         self.n_max = n_max
-        self.n_grams = defaultdict(NGram)
-        self.find_n_grams() 
+        self.n_grams = defaultdict(NGramData)
+        self.find_n_grams(limit) 
 
-    def find_n_grams(self):
+    class GluesEnum(Enum):
+        Scp = auto()
+        Dice = auto()
+        Phi_square = auto()
+
+    def find_frequency(self, ngram_words):
+        return self.n_grams[ngram_words].frequency
+
+
+    def calculate_scp(self, ngram_words, ngram_data):
+        try:
+            n_minus_one = (len(ngram_words)-1)
+            # if it's a 2-gram
+            if n_minus_one == 1:
+                ngram_data.scp = (ngram_data.frequency**2 / 
+                (self.find_frequency(ngram_words[0]) * self.find_frequency(ngram_words[1])))
+                return
+            F = 0
+            for i in range(1, n_minus_one):
+                F *= self.find_frequency(ngram_words[:i]) * self.find_frequency(ngram_words[i:])
+            F /= (n_minus_one)
+            ngram_data.scp = (ngram_data.frequency)**2 / F
+        except ZeroDivisionError:
+            pass    
+        
+    def calculate_dice(self, ngram_words, ngram_data):
+        pass
+
+    def calculate_phi_square(self, ngram_words, ngram_data):
+        pass
+
+    GLUE_FUNCTIONS = {
+        GluesEnum.Scp : calculate_scp,
+        GluesEnum.Dice: calculate_dice,
+        GluesEnum.Phi_square: calculate_phi_square
+    }
+
+    
+    def find_glue_values(self):
         """
-        Finds n-grams in the corpus and stores them in the n_grams attribute as a tensor, for every n from 2 to n_max.
+        finds the glue values of the n-gram in the corpus for all the glue functions and assigns it to the cohesion attribute.
+        """
+        # for each glue function
+        for glue in tqdm(self.GLUE_FUNCTIONS.keys(), desc="Finding glue values", unit="glue"):
+            # for each ngram
+            for words, data in self.n_grams.items():
+                # if not an unigram
+                if len(words) > 1:
+                    # call the glue function
+                    self.GLUE_FUNCTIONS[glue](self, words, data)
+            break
+        else:
+            raise ValueError(f"Invalid glue type: {type}")
+
+
+    def find_n_grams(self, limit):
+        """
+        Finds n-grams in the corpus and stores them in the n_grams attribute, 
+        while also counting their frequencies, for every n from 2 to n_max.
         """
         # for every size of the n-grams, up to n_max. also stores unigrams
         for i in tqdm(range(1, self.n_max + 1), desc=f"Finding n-grams"): 
-            # for j in tqdm(range(0, len(self.corpus) - i + 1), mininterval=50000, unit="n-gram", desc=f"Finding n-grams of size {i} in corpus"):
+            range_limit = len(self.corpus) - i + 1 if not limit else limit
+            for j in tqdm(range(0, range_limit), mininterval=50000, unit="n-gram", desc=f"Finding n-grams of size {i} in corpus"):
             # create an n-gram of size i and store it in the dictionary if it doesn't exist, else increase its frequency by 1
-            for j in tqdm(range(0, 50000), mininterval=50000, unit="n-grams", desc=f"Finding n-grams of size {i} in corpus"):
                 words = tuple(self.corpus[j:j + i])
                 self.n_grams[words].frequency += 1
+    
 
-
-    def find_n_grams_frequencies(self):
+    def sort_by_glue(self, glue: GluesEnum = GluesEnum.Scp):
         """
-        Generates n-gram objects with n from 2 to n_max and finds their frequencies in the corpus.
+        Sorts the n-grams by the glue function specified in the glue parameter.
         """
-        for n_gram in tqdm(self.n_grams, unit="n-grams", desc=f"Finding n-grams frequencies"):
-            n_gram.find_frequency(self.corpus)
-
+        pass
+    
     def __str__(self) -> str:
         """
         Returns a string representation of the extractor object: 
         """
 
-        return str([str(words) + " : " + str(data) for (words, data) in self.n_grams.items()])
+        return str([f"{str(words)} : {str(data)}" for (words, data) in self.n_grams.items()])
 
     def print_to_file(self, file_path: str = "n_grams.txt"):
         """
