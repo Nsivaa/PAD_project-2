@@ -22,30 +22,34 @@ class Extractor:
         self.find_n_grams(limit) 
 
     class GluesEnum(Enum):
-        Scp = auto()
-        Dice = auto()
-        Phi_square = auto()
+        scp = auto()
+        dice = auto()
+        phi_square = auto()
+
 
     def find_frequency(self, ngram_words):
-        return self.n_grams[ngram_words].frequency
-
+        data = self.n_grams.get(ngram_words)
+        return data.frequency if data else 0
 
     def calculate_scp(self, ngram_words, ngram_data):
         try:
             n_minus_one = (len(ngram_words)-1)
             # if it's a 2-gram
             if n_minus_one == 1:
-                ngram_data.scp = (ngram_data.frequency**2 / 
-                (self.find_frequency(ngram_words[0]) * self.find_frequency(ngram_words[1])))
-                return
-            F = 0
-            for i in range(1, n_minus_one):
-                F *= self.find_frequency(ngram_words[:i]) * self.find_frequency(ngram_words[i:])
-            F /= (n_minus_one)
-            ngram_data.scp = (ngram_data.frequency)**2 / F
+                denominator = self.find_frequency(ngram_words[0]) * self.find_frequency(ngram_words[1])
+                if denominator == 0:
+                    return
+                ngram_data.scp = (ngram_data.frequency**2) / denominator
+            # if it's a 3-gram or more
+            else:
+                F = 0
+                for i in range(1, n_minus_one):
+                    F += self.find_frequency(ngram_words[:i]) * self.find_frequency(ngram_words[i:])
+                F /= (n_minus_one)
+                ngram_data.scp = (ngram_data.frequency)**2 / F
         except ZeroDivisionError:
             pass    
-        
+
     def calculate_dice(self, ngram_words, ngram_data):
         pass
 
@@ -53,9 +57,9 @@ class Extractor:
         pass
 
     GLUE_FUNCTIONS = {
-        GluesEnum.Scp : calculate_scp,
-        GluesEnum.Dice: calculate_dice,
-        GluesEnum.Phi_square: calculate_phi_square
+        GluesEnum.scp : calculate_scp,
+        GluesEnum.dice: calculate_dice,
+        GluesEnum.phi_square: calculate_phi_square
     }
 
     
@@ -66,7 +70,8 @@ class Extractor:
         # for each glue function
         for glue in tqdm(self.GLUE_FUNCTIONS.keys(), desc="Finding glue values", unit="glue"):
             # for each ngram
-            for words, data in self.n_grams.items():
+            for words in list(self.n_grams.keys()):
+                data = self.n_grams[words]
                 # if not an unigram
                 if len(words) > 1:
                     # call the glue function
@@ -90,11 +95,14 @@ class Extractor:
                 self.n_grams[words].frequency += 1
     
 
-    def sort_by_glue(self, glue: GluesEnum = GluesEnum.Scp):
+    def sort_by_glue(self, glue: GluesEnum = GluesEnum.scp):
         """
         Sorts the n-grams by the glue function specified in the glue parameter.
         """
-        pass
+        if glue not in self.GLUE_FUNCTIONS:
+            raise ValueError(f"Invalid glue type: {glue}")
+        # sort the n-grams by the glue function
+        self.n_grams = dict(sorted(self.n_grams.items(), key=lambda item: getattr(item[1], glue.name), reverse=True))
     
     def __str__(self) -> str:
         """
@@ -109,3 +117,15 @@ class Extractor:
         """
         with open(file_path, "w") as f:
             print(self, file=f)
+    
+    def print_top_n_glue(self, n: int = 10, glue: GluesEnum = GluesEnum.scp):
+        """
+        Prints the top n n-grams by the glue function specified in the glue parameter.
+        """
+        if glue not in self.GLUE_FUNCTIONS:
+            raise ValueError(f"Invalid glue type: {glue}")
+        # sort the n-grams by the glue function
+        self.sort_by_glue(glue)
+        # print the top n n-grams
+        for i, (words, data) in enumerate(list(self.n_grams.items())[:n]):
+            print(f"{i + 1}: {words} : {data}")
