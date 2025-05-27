@@ -54,7 +54,6 @@ def load_and_preprocess_corpus(dir_path: str, special_chars: "list[str]" = None)
     return tokens
 
 
-
 def is_previous_substring_capitalized(corpus: str, index: int) -> bool:
     """
     Checks if the substring before the index is capitalized.

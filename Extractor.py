@@ -24,6 +24,11 @@ class Extractor:
         self.find_n_grams(limit) 
         self.total_ngrams = defaultdict(int) # to count the total number of n-grams of each size
         self.find_total_ngrams()
+        self.stopwords = ()
+        self.vowels_and_accented_vowels = ["a","e","i","o","u","A","E","I","O","U",
+                        "à","á","ã","â","é","è","í","ó","õ","ò",
+                        "Á","À","Ã","Â","Õ","Ô","ê","Ê","y","Y"]  # Set of vowels for syllable counting
+        self.vowels = ["a","e","i","o","u","A","E","I","O","U","y","Y"] # Set of accented vowels
 
     class GluesEnum(Enum):
         scp = auto()
@@ -267,4 +272,136 @@ class Extractor:
 
         return scored_candidates[:top_n]
 
-    # def find_MWE(self, glue: )
+########################
+
+
+
+    def calculate_omega_minus_one(self, ngram):
+        get_glue = lambda d: (
+            d.scp if self.GluesEnum.scp else
+            d.dice if self.GluesEnum.dice else
+            d.phi_square
+        )
+        n = len(ngram)
+        omega_minus = []
+        for i in range(n):
+            sub_ngram = ngram[:i] + ngram[i+1:]
+            if sub_ngram in self.n_grams:
+                omega_minus.append(get_glue(self.n_grams[sub_ngram]))
+        return max(omega_minus) if omega_minus else 0.0
+
+
+    def calculate_omega_plus_one(self, ngram):
+        get_glue = lambda d: (
+            d.scp if self.GluesEnum.scp else
+            d.dice if self.GluesEnum.dice else
+            d.phi_square
+        )
+        n = len(ngram)
+        omega_plus = []
+        if n + 1 <= self.n_max:
+            for (cand_ngram, cand_data) in self.n_grams.items():
+                if len(cand_ngram) == n + 1:
+                    for i in range(n + 1):
+                        if cand_ngram[i:i + n] == ngram:
+                            omega_plus.append(get_glue(cand_data))
+                            break
+        return max(omega_plus) if omega_plus else 0.0
+
+    def calculate_neighboring_2grams(self, ngram, data):
+        """
+        Counts the number of neighboring 2-grams in the corpus for the given unigram and updates the data object.
+        """
+        n = len(ngram)
+        if n != 1:
+            return
+        count = 0
+        for i in range(self.corpus_size - 1):
+            if self.corpus[i] == ngram[0]:
+                # Check if the previous and next words form a 2-gram 
+                if i > 0:
+                    prev_word = self.corpus[i - 1]
+                    next_word = self.corpus[i + 1] if i + 1 < self.corpus_size else None
+                    if next_word is not None:
+                        if (prev_word, next_word) in self.n_grams:
+                            count += 1
+        data.neighboring_2grams = count
+
+    def find_stopwords(self):
+        """
+        finds stopwords among the unigrams by evaluating the following condition: 
+        stopwords have fewer syllables than content words, and have many more neighboring 2-grams 
+        than content words. 
+        """ 
+        for ngram, data in self.n_grams.items():
+            if len(ngram) != 1:
+                continue
+            data.n_syllables = self.calculate_syllables(ngram[0])
+            self.calculate_neighboring_2grams(ngram, data)
+            
+    def calculate_syllables(word: str, vowels: set, vowels_and_accented_vowels: set):
+        """
+        Calculates the number of syllables in the word based on the presence of vowels and accented vowels.
+        
+        Args:
+            vowels (set): Set of vowel characters.
+            accented_vowels (set): Set of accented vowel characters.
+        """
+        n_vowels = 0
+        n_vowels_before_accent = 0
+        for i in range(len(word)):
+            if word[i] in vowels_and_accented_vowels:
+                n_vowels += 1
+                if i < len(word)- 1 and word(i+1) in vowels:
+                    n_vowels_before_accent += 1
+
+        return n_vowels - n_vowels_before_accent
+
+    def calculate_Omegas(self, glue: GluesEnum = GluesEnum.scp):
+        self.GluesEnum = glue  # store glue type for helper access or pass as param
+        for ngram, data in tqdm(self.n_grams.items(), desc="Calculating Ω values"):
+            n = len(ngram)
+            if n == 1:
+                continue
+            data.omega_n_minus_one = self.calculate_omega_minus_one(ngram)
+            data.omega_n_plus_one = self.calculate_omega_plus_one(ngram)
+        
+
+
+    def find_MWEs(self, glue: GluesEnum = GluesEnum.scp):
+        self.calculate_Omegas(glue)
+        p = self.p  # Assume p is defined in your class somewhere
+        stopwords = self.stopwords  # Assume this is your stopwords set
+        
+        MWEs = []
+        get_glue = lambda d: (
+            d.scp if glue == self.GluesEnum.scp else
+            d.dice if glue == self.GluesEnum.dice else
+            d.phi_square
+        )
+
+        for ngram, data in self.n_grams.items():
+            n = len(ngram)
+            if n == 1:
+                continue  # skip unigrams
+
+            g_w = get_glue(data)
+            omega_minus = data.omega_n_minus_one
+            omega_plus = data.omega_n_plus_one
+
+            # Condition 1 and 2: glue score threshold based on length
+            if n == 2:
+                cond_glue = g_w >= omega_plus
+            else:
+                cond_glue = g_w >= ((omega_minus ** p + omega_plus ** p) / 2) ** (1 / p)
+
+            # Condition 3: frequency check
+            cond_freq = data.freq > 1
+
+            # Condition 4: check first and last word not in stopwords
+            cond_stopwords = (ngram[0] not in stopwords) and (ngram[-1] not in stopwords)
+
+            if cond_glue and cond_freq and cond_stopwords:
+                MWEs.append(ngram)
+
+        return MWEs
