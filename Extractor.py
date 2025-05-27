@@ -40,13 +40,16 @@ class Extractor:
     def find_frequency(self, ngram_words):
         data = self.n_grams.get(ngram_words)
         return data.frequency if data else 0
+    
 
     def find_probability(self, ngram_words):
         data = self.n_grams.get(ngram_words)
         if not data:
-            return 0
-        total = self.total_ngrams[len(ngram_words)]
-        return data.frequency / sum(self.total_ngrams.values())
+            return 0.0
+        n = len(ngram_words)
+        total = self.total_ngrams[n]
+        return data.frequency / total if total > 0 else 0.0
+
 
     def calculate_scp(self, ngram_words, ngram_data):
         n = len(ngram_words)
@@ -263,3 +266,5 @@ class Extractor:
         scored_candidates.sort(key=lambda x: x[1], reverse=True)
 
         return scored_candidates[:top_n]
+
+    # def find_MWE(self, glue: )

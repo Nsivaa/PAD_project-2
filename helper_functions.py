@@ -1,55 +1,59 @@
-from collections import Counter
-from tqdm import tqdm
 import os
-from enum import Enum, auto
-
-
+import re
+from tqdm import tqdm
 
 
 def load_and_preprocess_corpus(dir_path: str, special_chars: "list[str]" = None):
     """
-    Opens the corpus from a directory, and preprocesses it by preappending space on left of special chars
+    Loads and preprocesses text corpus from a directory of text files.
+    Keeps URLs intact, spaces around punctuation, parentheses, and normalizes tokens.
+    
     Args:
-        dir_path (str): The path to the directory containing the text files.
-        special_chars (list[str]): A list of special characters to preprocess.
+        dir_path (str): Path to directory with .txt files
+        special_chars (list[str]): List of special characters to space (e.g., ['.', ',', ';', '!'])
+    
     Returns:
-        corpus (str): The preprocessed text corpus.
+        list[str]: Tokenized corpus
     """
-    """
-    TODO, ISSUES:
-    - cuts numbers like ",000"
-    - cuts urls
-    - leaves consecutive special chars
-    """
-
     corpus = ""
+    url_map = {}
+    url_id = 0
+
     for file in tqdm(os.listdir(dir_path), unit="files", desc="Loading corpus"):
         with open(os.path.join(dir_path, file), "r", encoding="utf-8") as f:
             document = f.read()
-            # Preprocess the corpus by adding space before special characters
-            for char in special_chars:
-                try: # as document.index() throws exceptions if char is not found
-                    # Check if the character is in the document and add space before it.
-                    # Dots are replaced only if the preceding substring has no capital letters, 
-                    # to avoid breaking acronyms or words like "Dr.".
-                    # space is added after new line characters if the next character is not a space as newlines are 
-                    # found at the beginning of files
-                    document = document.replace(char,
-                                                " " + char if document[document.index(char) - 1] != " "
-                                                    and not (char == '.' and is_previous_substring_capitalized(document, document.index(char) - 1))  
-                                                # else char + " " if char == "\n" and document[document.index(char) + 1] != " "
-                                                else char + " " if document[document.index(char) + 1] != " " 
-                                                else char)
-                    document = document.replace("\n", " \n ") # add space before and after new line characters
 
-                except ValueError as ve:
-                    pass
-                except IndexError as ie:
-                   pass
-            corpus += document
-    corpus = corpus.split(" ")
-    return [word for word in corpus if word != "" and word != "\n"]
-     
+            # Step 1: Detect URLs and replace them with placeholders
+            url_pattern = r'https?://\S+|www\.\S+'
+            urls_found = re.findall(url_pattern, document)
+            for url in urls_found:
+                placeholder = f'__URL_{url_id}__'
+                url_map[placeholder] = url
+                document = document.replace(url, placeholder)
+                url_id += 1
+
+            # Step 2: Add space after '(' and before ')'
+            document = re.sub(r'\(\s*', '( ', document)
+            document = re.sub(r'\s*\)', ' )', document)
+
+            # Step 3: Space special characters (if any)
+            if special_chars:
+                pattern = r'(?<!\s)([' + re.escape(''.join(special_chars)) + r'])'
+                document = re.sub(pattern, r' \1', document)
+
+            # Step 4: Normalize newlines
+            document = document.replace("\n", " \n ")
+
+            # Step 5: Append cleaned document to full corpus
+            corpus += document + " "
+
+    # Step 6: Restore URL placeholders with actual URLs
+    tokens = corpus.split()
+    tokens = [url_map.get(token, token) for token in tokens if token not in {"", "\n"}]
+
+    return tokens
+
+
 
 def is_previous_substring_capitalized(corpus: str, index: int) -> bool:
     """
