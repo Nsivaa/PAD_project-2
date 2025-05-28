@@ -23,7 +23,6 @@ class Extractor:
         self.find_n_grams(limit) 
         self.total_ngrams = defaultdict(int) # to count the total number of n-grams of each size
         self.find_total_ngrams()
-        self.stopwords = set()
         self.glue_functions = {
             "scp": self.calculate_scp,
             "dice": self.calculate_dice,
@@ -295,39 +294,6 @@ class Extractor:
                             break
         return max(omega_plus) if omega_plus else 0.0
 
-    def calculate_neighboring_2grams(self, ngram, data):
-        """
-        Counts the number of neighboring 2-grams in the corpus for the given unigram and updates the data object.
-        """
-        n = len(ngram)
-        if n != 1:
-            return
-        count = 0
-        for i in range(self.corpus_size - 1):
-            if self.corpus[i] == ngram[0]:
-                # Check if the previous and next words form a 2-gram 
-                if i > 0:
-                    prev_word = self.corpus[i - 1]
-                    next_word = self.corpus[i + 1] if i + 1 < self.corpus_size else None
-                    if next_word is not None:
-                        if (prev_word, next_word) in self.n_grams:
-                            count += 1
-        data.neighboring_2grams = count
-
-    def find_stopwords(self):
-        """
-        finds stopwords among the unigrams by evaluating the following condition: 
-        stopwords have fewer syllables than content words, and have many more neighboring 2-grams 
-        than content words. 
-        """ 
-        for ngram, data in self.n_grams.items():
-            if len(ngram) != 1:
-                continue
-            data.n_syllables = self.calculate_syllables(ngram[0])
-            self.calculate_neighboring_2grams(ngram, data)
-
-
-    
 
     def calculate_Omegas(self, glue: str = None):
         if glue:
@@ -340,13 +306,11 @@ class Extractor:
             data.omega_n_plus_one = self.calculate_omega_plus_one(ngram)
         
 
-
     def find_MWEs(self, glue: str = None, stopwords=set()):
         if glue:
             self.glue_type = glue
         self.calculate_Omegas(glue)
         p = self.p  # Assume p is defined in your class somewhere
-        stopwords = self.stopwords  # Assume this is your stopwords set
         
         MWEs = []
 
