@@ -1,7 +1,6 @@
 from NGramData import NGramData
 from tqdm import tqdm
 from collections import defaultdict
-from enum import Enum, auto
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -24,13 +23,23 @@ class Extractor:
         self.find_n_grams(limit) 
         self.total_ngrams = defaultdict(int) # to count the total number of n-grams of each size
         self.find_total_ngrams()
-        self.stopwords = ()
+        self.stopwords = set()
+        self.glue_functions = {
+            "scp": self.calculate_scp,
+            "dice": self.calculate_dice,
+            "phi_square": self.calculate_phi_square
+        }
+        self.glue_type = "scp"  # default glue
+        self.p = 2  # default p value for glue functions, can be changed later
+
+    def get_glue_value(self, data: NGramData):
+        return {
+            "scp": data.scp,
+            "dice": data.dice,
+            "phi_square": data.phi_square
+        }[self.glue_type]
 
 
-    class GluesEnum(Enum):
-        scp = auto()
-        dice = auto()
-        phi_square = auto()
 
     def find_total_ngrams(self):
         """
@@ -123,11 +132,6 @@ class Extractor:
         if phi_values:
             ngram_data.phi_square = sum(phi_values) / len(phi_values) """
 
-    GLUE_FUNCTIONS = {
-        GluesEnum.scp : calculate_scp,
-        GluesEnum.dice: calculate_dice,
-        GluesEnum.phi_square: calculate_phi_square
-    }
 
     ####
     def filter_by_min_frequency(self, min_freq: int):
@@ -140,20 +144,13 @@ class Extractor:
     
     def find_glue_values(self):
         """
-        finds the glue values of the n-gram in the corpus for all the glue functions and assigns it to the cohesion attribute.
+        Computes and assigns glue values for all n-grams (of length > 1) using all defined glue functions.
+        Each result is saved in the corresponding attribute of the NGramData object.
         """
-        # for each glue function
-        for glue in tqdm(self.GLUE_FUNCTIONS.keys(), desc="Finding glue values", unit="glue"):
-            # for each ngram
-            for words in list(self.n_grams.keys()):
-                data = self.n_grams[words]
-                # if not an unigram
+        for glue_name, glue_func in tqdm(self.glue_functions.items(), desc="Finding glue values", unit="glue"):
+            for words, data in self.n_grams.items():
                 if len(words) > 1:
-                    # call the glue function
-                    self.GLUE_FUNCTIONS[glue](self, words, data)
-            #break
-        #else:
-         #   raise ValueError(f"Invalid glue type: {type}")
+                    glue_func(words, data)
 
 
     def find_n_grams(self, limit):
@@ -170,15 +167,14 @@ class Extractor:
                 self.n_grams[words].frequency += 1
     
 
-    def sort_by_glue(self, glue: GluesEnum = GluesEnum.scp):
+    def sort_by_glue(self, glue: str):
         """
         Sorts the n-grams by the glue function specified in the glue parameter.
         """
-        if glue not in self.GLUE_FUNCTIONS:
-            raise ValueError(f"Invalid glue type: {glue}")
+        
         # sort the n-grams by the glue function
-        self.n_grams = dict(sorted(self.n_grams.items(), key=lambda item: getattr(item[1], glue.name), reverse=True))
-    
+        self.n_grams = dict(sorted(self.n_grams.items(), key=lambda item: self.get_glue_value(item[1]), reverse=True))
+
     def __str__(self) -> str:
         """
         Returns a string representation of the extractor object: 
@@ -193,24 +189,24 @@ class Extractor:
         with open(file_path, "w") as f:
             print(self, file=f)
     
-    def print_top_n_glue(self, n: int = 10, glue: GluesEnum = GluesEnum.scp):
+    def print_top_n_glue(self, n: int = 10, glue: str = None):
         """
         Prints the top n n-grams by the glue function specified in the glue parameter.
         """
-        if glue not in self.GLUE_FUNCTIONS:
-            raise ValueError(f"Invalid glue type: {glue}")
+        if glue:
+            self.glue_type = glue
         # sort the n-grams by the glue function
         self.sort_by_glue(glue)
         # print the top n n-grams
         for i, (words, data) in enumerate(list(self.n_grams.items())[:n]):
             print(f"{i + 1}: {words} : {data}")
 
-    def print_all(self, glue: GluesEnum = GluesEnum.scp):
+    def print_all(self, glue: str = None):
         """
         Prints the top n n-grams by the glue function specified in the glue parameter.
         """
-        if glue not in self.GLUE_FUNCTIONS:
-            raise ValueError(f"Invalid glue type: {glue}")
+        if glue:
+            self.glue_type = glue
         # sort the n-grams by the glue function
         self.sort_by_glue(glue)
         # print the top n n-grams
@@ -231,22 +227,24 @@ class Extractor:
         
         return precision, recall, f1
     
-    def print_bottom_n_glue(self, n: int = 10, glue: GluesEnum = GluesEnum.scp):
+    def print_bottom_n_glue(self, n: int = 10, glue: str = None):
         """
         Prints the bottom n n-grams by the glue function specified in the glue parameter.
         """
-        if glue not in self.GLUE_FUNCTIONS:
-            raise ValueError(f"Invalid glue type: {glue}")
+        if glue:
+            self.glue_type = glue
         # sort the n-grams by the glue function
         self.sort_by_glue(glue)
         # print the bottom n n-grams
         for i, (words, data) in enumerate(list(self.n_grams.items())[-n:]):
             print(f"{i + 1}: {words} : {data}")
 
-    def extract_explicit_keywords(self, top_n: int = 15, glue: GluesEnum = GluesEnum.scp):
+    def extract_explicit_keywords(self, top_n: int = 15, glue: str = None):
         """
             Extracts the top-N relevant expressions as explicit keywords.
         """
+        if glue:
+            self.glue_type = glue
         self.sort_by_glue(glue)
         return list(self.n_grams.keys())[:top_n]
     
@@ -274,26 +272,18 @@ class Extractor:
 
 
     def calculate_omega_minus_one(self, ngram):
-        get_glue = lambda d: (
-            d.scp if self.GluesEnum.scp else
-            d.dice if self.GluesEnum.dice else
-            d.phi_square
-        )
+
         n = len(ngram)
         omega_minus = []
         for i in range(n):
             sub_ngram = ngram[:i] + ngram[i+1:]
             if sub_ngram in self.n_grams:
-                omega_minus.append(get_glue(self.n_grams[sub_ngram]))
+                omega_minus.append(self.get_glue_value(self.n_grams[sub_ngram]))
         return max(omega_minus) if omega_minus else 0.0
 
 
     def calculate_omega_plus_one(self, ngram):
-        get_glue = lambda d: (
-            d.scp if self.GluesEnum.scp else
-            d.dice if self.GluesEnum.dice else
-            d.phi_square
-        )
+
         n = len(ngram)
         omega_plus = []
         if n + 1 <= self.n_max:
@@ -301,7 +291,7 @@ class Extractor:
                 if len(cand_ngram) == n + 1:
                     for i in range(n + 1):
                         if cand_ngram[i:i + n] == ngram:
-                            omega_plus.append(get_glue(cand_data))
+                            omega_plus.append(self.get_glue_value(cand_data))
                             break
         return max(omega_plus) if omega_plus else 0.0
 
@@ -339,8 +329,9 @@ class Extractor:
 
     
 
-    def calculate_Omegas(self, glue: GluesEnum = GluesEnum.scp):
-        self.GluesEnum = glue  # store glue type for helper access or pass as param
+    def calculate_Omegas(self, glue: str = None):
+        if glue:
+            self.glue_type = glue
         for ngram, data in tqdm(self.n_grams.items(), desc="Calculating Ω values"):
             n = len(ngram)
             if n == 1:
@@ -350,24 +341,21 @@ class Extractor:
         
 
 
-    def find_MWEs(self, glue: GluesEnum = GluesEnum.scp):
+    def find_MWEs(self, glue: str = None, stopwords=set()):
+        if glue:
+            self.glue_type = glue
         self.calculate_Omegas(glue)
         p = self.p  # Assume p is defined in your class somewhere
         stopwords = self.stopwords  # Assume this is your stopwords set
         
         MWEs = []
-        get_glue = lambda d: (
-            d.scp if glue == self.GluesEnum.scp else
-            d.dice if glue == self.GluesEnum.dice else
-            d.phi_square
-        )
 
         for ngram, data in self.n_grams.items():
             n = len(ngram)
             if n == 1:
                 continue  # skip unigrams
 
-            g_w = get_glue(data)
+            g_w = self.get_glue_value(data)
             omega_minus = data.omega_n_minus_one
             omega_plus = data.omega_n_plus_one
 
@@ -378,7 +366,7 @@ class Extractor:
                 cond_glue = g_w >= ((omega_minus ** p + omega_plus ** p) / 2) ** (1 / p)
 
             # Condition 3: frequency check
-            cond_freq = data.freq > 1
+            cond_freq = data.frequency > 1
 
             # Condition 4: check first and last word not in stopwords
             cond_stopwords = (ngram[0] not in stopwords) and (ngram[-1] not in stopwords)
