@@ -43,8 +43,9 @@ class StopwordDetector:
             if not elbow_found:
                 stopwords[word] = True
             c += 1
-        return stopwords
 
+        return set(stopwords.keys())
+    
     def calculate_syllables(self, word: str):
         """
         Calculates the number of syllables in the word based on the presence of vowels and accented vowels.
