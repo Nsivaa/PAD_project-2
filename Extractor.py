@@ -30,6 +30,7 @@ class Extractor:
         }
         self.glue_type = "scp"  # default glue
         self.p = 2  # default p value for glue functions, can be changed later
+        self.MWEs = []  # to store multi-word expressions (MWEs) found in the corpus
 
     def get_glue_value(self, data: NGramData):
         return {
@@ -146,7 +147,7 @@ class Extractor:
         Computes and assigns glue values for all n-grams (of length > 1) using all defined glue functions.
         Each result is saved in the corresponding attribute of the NGramData object.
         """
-        for glue_name, glue_func in tqdm(self.glue_functions.items(), desc="Finding glue values", unit="glue"):
+        for _, glue_func in tqdm(self.glue_functions.items(), desc="Finding glue values", unit="glue"):
             for words, data in self.n_grams.items():
                 if len(words) > 1:
                     glue_func(words, data)
@@ -240,19 +241,20 @@ class Extractor:
 
     def extract_explicit_keywords(self, top_n: int = 15, glue: str = None):
         """
-            Extracts the top-N relevant expressions as explicit keywords.
+        Extracts the top-N relevant expressions as explicit keywords from MWEs.
         """
         if glue:
             self.glue_type = glue
         self.sort_by_glue(glue)
-        return list(self.n_grams.keys())[:top_n]
-    
+        return list(self.MWEs)[:top_n]
+
     def extract_implicit_keywords(self, explicit_keywords, top_n=10):
         """
-            Extracts implicit keywords by computing similarity with explicit ones.
+        Extracts implicit keywords by computing similarity with explicit ones on MWEs.
         """
-        candidates = [" ".join(words) for words in self.n_grams.keys() if len(words) > 1]
-        explicit_texts = [" ".join(words) for words in explicit_keywords]
+        # Candidates are MWEs with length > 1
+        candidates = [" ".join(mwe) for mwe in self.MWEs if len(mwe) > 1]
+        explicit_texts = [" ".join(mwe) for mwe in explicit_keywords]
 
         vectorizer = TfidfVectorizer().fit(candidates + explicit_texts)
         candidate_vectors = vectorizer.transform(candidates)
@@ -265,6 +267,7 @@ class Extractor:
         scored_candidates.sort(key=lambda x: x[1], reverse=True)
 
         return scored_candidates[:top_n]
+
 
 ########################
 
@@ -298,7 +301,8 @@ class Extractor:
     def calculate_Omegas(self, glue: str = None):
         if glue:
             self.glue_type = glue
-        for ngram, data in tqdm(self.n_grams.items(), desc="Calculating Ω values"):
+        for ngram, data in tqdm(self.n_grams.items(), desc="Calculating Ω values",
+                                 unit="n-gram", mininterval=500):
             n = len(ngram)
             if n == 1:
                 continue
@@ -314,7 +318,7 @@ class Extractor:
         
         MWEs = []
 
-        for ngram, data in self.n_grams.items():
+        for ngram, data in tqdm(self.n_grams.items(), desc="Finding MWEs", unit="n-gram"):
             n = len(ngram)
             if n == 1:
                 continue  # skip unigrams
@@ -338,4 +342,4 @@ class Extractor:
             if cond_glue and cond_freq and cond_stopwords:
                 MWEs.append(ngram)
 
-        return MWEs
+        self.MWEs = MWEs
