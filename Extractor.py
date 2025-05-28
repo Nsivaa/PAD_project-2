@@ -25,10 +25,7 @@ class Extractor:
         self.total_ngrams = defaultdict(int) # to count the total number of n-grams of each size
         self.find_total_ngrams()
         self.stopwords = ()
-        self.vowels_and_accented_vowels = ["a","e","i","o","u","A","E","I","O","U",
-                        "à","á","ã","â","é","è","í","ó","õ","ò",
-                        "Á","À","Ã","Â","Õ","Ô","ê","Ê","y","Y"]  # Set of vowels for syllable counting
-        self.vowels = ["a","e","i","o","u","A","E","I","O","U","y","Y"] # Set of accented vowels
+
 
     class GluesEnum(Enum):
         scp = auto()
@@ -338,24 +335,9 @@ class Extractor:
                 continue
             data.n_syllables = self.calculate_syllables(ngram[0])
             self.calculate_neighboring_2grams(ngram, data)
-            
-    def calculate_syllables(word: str, vowels: set, vowels_and_accented_vowels: set):
-        """
-        Calculates the number of syllables in the word based on the presence of vowels and accented vowels.
-        
-        Args:
-            vowels (set): Set of vowel characters.
-            accented_vowels (set): Set of accented vowel characters.
-        """
-        n_vowels = 0
-        n_vowels_before_accent = 0
-        for i in range(len(word)):
-            if word[i] in vowels_and_accented_vowels:
-                n_vowels += 1
-                if i < len(word)- 1 and word(i+1) in vowels:
-                    n_vowels_before_accent += 1
 
-        return n_vowels - n_vowels_before_accent
+
+    
 
     def calculate_Omegas(self, glue: GluesEnum = GluesEnum.scp):
         self.GluesEnum = glue  # store glue type for helper access or pass as param
