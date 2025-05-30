@@ -12,8 +12,6 @@ class NGramData:
         self.relevant_scp = False
         self.relevant_dice = False
         self.relevant_phi_square = False
-        self.n_syllables = 0
-        self.neighboring_2grams = 0
 
     def __str__(self) -> str:
         """

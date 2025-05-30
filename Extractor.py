@@ -5,6 +5,67 @@ from collections import defaultdict
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import math
+from psutil import cpu_count # for os.cpu_count()
+
+# outside of class so that it's picklable -> we're able to pass it to another process to parallelize
+def get_glue_value(glue_type, data: NGramData):
+    return {
+        "scp": data.scp,
+        "dice": data.dice,
+        "phi_square": data.phi_square
+    }[glue_type]
+
+# function to extract relevant n-grams for omega calculations
+# needed to define only the relevant n-grams for each n-gram in the corpus, 
+# to avoid sending the full n-gram dictionary to each process and have mamory issues
+def extract_relevant_ngrams(chunk, full_n_grams_by_len, n_max):
+    relevant_keys = set(chunk)
+    for ngram in chunk:
+        n = len(ngram)
+        if n > 1:
+            for i in range(n):
+                sub_ngram = ngram[:i] + ngram[i + 1:]
+                relevant_keys.add(sub_ngram)
+        if n + 1 <= n_max:
+            for cand_ngram in full_n_grams_by_len.get(n + 1, []):
+                if len(cand_ngram) == n + 1:
+                    for i in range(n + 1):
+                        if cand_ngram[i:i + n] == ngram:
+                            relevant_keys.add(cand_ngram)
+                            break
+    # Trim to only relevant n_grams
+    return {k: full_n_grams_by_len[k] for k in relevant_keys if k in full_n_grams_by_len}
+
+
+
+# parallel function to compute omega values for n-grams
+def compute_omega_chunk(ngram_chunk, n_grams, glue_type, n_max):
+    results = []
+    for ngram in ngram_chunk:
+        n = len(ngram)
+
+        omega_minus = []
+        for i in range(n):
+            sub_ngram = ngram[:i] + ngram[i + 1:]
+            if sub_ngram in n_grams:
+                omega_minus.append(get_glue_value(glue_type, n_grams[sub_ngram]))
+        omega_n_minus_one = max(omega_minus) if omega_minus else 0.0
+
+        omega_n_plus_one = 0.0
+        if n + 1 <= n_max:
+            for cand_ngram, cand_data in n_grams.items():
+                if len(cand_ngram) == n + 1:
+                    for i in range(n + 1):
+                        if cand_ngram[i:i + n] == ngram:
+                            omega_n_plus_one = max(
+                                omega_n_plus_one, get_glue_value(glue_type, cand_data)
+                            )
+                            break
+        results.append((ngram, omega_n_minus_one, omega_n_plus_one))
+    return results
+
 class Extractor:
     """
     The Extractor class is responsible for extracting n-grams from a given corpus.
@@ -14,7 +75,7 @@ class Extractor:
     the n-gram in O(1) by dictionary look-up on the words tuple.
     """
 
-    def __init__(self, corpus, n_max: int = 7, limit: int = None):
+    def __init__(self, corpus, n_max: int = 7, limit: int = None, glue_type: str = "scp", p: int = 2):
         
         self.corpus = corpus
         self.corpus_size = len(corpus)
@@ -28,18 +89,20 @@ class Extractor:
             "dice": self.calculate_dice,
             "phi_square": self.calculate_phi_square
         }
-        self.glue_type = "scp"  # default glue
-        self.p = 2  # default p value for glue functions, can be changed later
+        self.glue_type = glue_type  # type of glue function to use for sorting and filtering n-grams
+        self.p = p # parameter for glue functions that require it, e.g., SCP
         self.MWEs = []  # to store multi-word expressions (MWEs) found in the corpus
+        self.n_grams_by_len = defaultdict(list)
+        self.compute_n_grams_by_len()  # to store n-grams by their length for quick access
 
-    def get_glue_value(self, data: NGramData):
-        return {
-            "scp": data.scp,
-            "dice": data.dice,
-            "phi_square": data.phi_square
-        }[self.glue_type]
-
-
+        
+    def compute_n_grams_by_len(self):
+        """
+        Computes and stores n-grams by their length in the n_grams_by_len attribute.
+        This allows for quick access to n-grams of a specific length.
+        """
+        for ngram in self.n_grams:
+            self.n_grams_by_len[len(ngram)].append(ngram)
 
     def find_total_ngrams(self):
         """
@@ -144,13 +207,13 @@ class Extractor:
     
     def find_glue_values(self):
         """
-        Computes and assigns glue values for all n-grams (of length > 1) using all defined glue functions.
+        Computes and assigns glue values for all n-grams (of length > 1) using the defined glue function.
         Each result is saved in the corresponding attribute of the NGramData object.
         """
-        for _, glue_func in tqdm(self.glue_functions.items(), desc="Finding glue values", unit="glue"):
-            for words, data in self.n_grams.items():
-                if len(words) > 1:
-                    glue_func(words, data)
+        glue_func = self.glue_functions.get(self.glue_type)
+        for words, data in tqdm(self.n_grams.items(), desc="Calculating glue values", unit="n-gram", mininterval=50000):
+            if len(words) > 1:
+                glue_func(words, data)
 
 
     def find_n_grams(self, limit):
@@ -167,13 +230,13 @@ class Extractor:
                 self.n_grams[words].frequency += 1
     
 
-    def sort_by_glue(self, glue: str):
+    def sort_by_glue(self):
         """
         Sorts the n-grams by the glue function specified in the glue parameter.
         """
         
         # sort the n-grams by the glue function
-        self.n_grams = dict(sorted(self.n_grams.items(), key=lambda item: self.get_glue_value(item[1]), reverse=True))
+        self.n_grams = dict(sorted(self.n_grams.items(), key=lambda item: get_glue_value(self.glue_type,item[1]), reverse=True))
 
     def __str__(self) -> str:
         """
@@ -280,7 +343,7 @@ class Extractor:
         for i in range(n):
             sub_ngram = ngram[:i] + ngram[i+1:]
             if sub_ngram in self.n_grams:
-                omega_minus.append(self.get_glue_value(self.n_grams[sub_ngram]))
+                omega_minus.append(get_glue_value(self.glue_type, self.n_grams[sub_ngram]))
         return max(omega_minus) if omega_minus else 0.0
 
 
@@ -293,27 +356,58 @@ class Extractor:
                 if len(cand_ngram) == n + 1:
                     for i in range(n + 1):
                         if cand_ngram[i:i + n] == ngram:
-                            omega_plus.append(self.get_glue_value(cand_data))
+                            omega_plus.append(get_glue_value(self.glue_type, cand_data))
                             break
         return max(omega_plus) if omega_plus else 0.0
 
 
-    def calculate_Omegas(self, glue: str = None):
-        if glue:
-            self.glue_type = glue
+    def calculate_Omegas(self):
+
         for ngram, data in tqdm(self.n_grams.items(), desc="Calculating Ω values",
-                                 unit="n-gram", mininterval=500):
+                                 unit="n-gram", miniters=200):
             n = len(ngram)
             if n == 1:
                 continue
             data.omega_n_minus_one = self.calculate_omega_minus_one(ngram)
             data.omega_n_plus_one = self.calculate_omega_plus_one(ngram)
         
+    
+    def parallel_calculate_Omegas(self, num_workers: int = None):
 
-    def find_MWEs(self, glue: str = None, stopwords=set()):
-        if glue:
-            self.glue_type = glue
-        self.calculate_Omegas(glue)
+        # Split n-gram keys into chunks
+        ngram_list = list(self.n_grams.keys())
+        chunk_size = math.ceil(len(ngram_list) / num_workers)
+        ngram_chunks = [ngram_list[i:i + chunk_size] for i in range(0, len(ngram_list), chunk_size)]
+
+        # Prepare only the necessary subset of n_grams for each chunk
+        chunk_args = []
+        for chunk in tqdm(ngram_chunks, desc="Preparing chunks for parallel processing", unit="chunk"):
+            relevant_subset = extract_relevant_ngrams(chunk, self.n_grams, self.n_max)
+            chunk_args.append((chunk, relevant_subset, self.glue_type, self.n_max))
+
+        # Run in parallel
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            futures = [
+                executor.submit(compute_omega_chunk, *args)
+                for args in chunk_args
+            ]
+
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Calculating Ω", unit="process"):
+                for ngram, omega_minus, omega_plus in future.result():
+                    if ngram in self.n_grams and omega_minus is not None:
+                        self.n_grams[ngram].omega_n_minus_one = omega_minus
+                        self.n_grams[ngram].omega_n_plus_one = omega_plus
+
+    def find_MWEs(self, stopwords=set(), parallel: bool = False, n_workers: int = None):
+        
+        glue = self.glue_type  
+        if parallel:
+            if n_workers is None:
+                n_workers = max(1, cpu_count(logical=False) - 1)
+            tqdm.write(f"Using {n_workers} workers for parallel processing.")
+            self.parallel_calculate_Omegas(n_workers)
+        else:
+            self.calculate_Omegas(glue)
         p = self.p  # Assume p is defined in your class somewhere
         
         MWEs = []
@@ -323,7 +417,7 @@ class Extractor:
             if n == 1:
                 continue  # skip unigrams
 
-            g_w = self.get_glue_value(data)
+            g_w = get_glue_value(self.glue_type, data)
             omega_minus = data.omega_n_minus_one
             omega_plus = data.omega_n_plus_one
 
@@ -343,3 +437,4 @@ class Extractor:
                 MWEs.append(ngram)
 
         self.MWEs = MWEs
+
