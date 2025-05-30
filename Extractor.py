@@ -41,7 +41,7 @@ def extract_relevant_ngrams(chunk, full_n_grams_by_len, n_max):
 
 
 # parallel function to compute omega values for n-grams
-def compute_omega_chunk(ngram_chunk, n_grams, glue_type, n_max):
+def compute_omega_chunk(ngram_chunk, local_n_grams, glue_type, n_max, super_ngram_index):
     results = []
     for ngram in ngram_chunk:
         n = len(ngram)
@@ -49,22 +49,34 @@ def compute_omega_chunk(ngram_chunk, n_grams, glue_type, n_max):
         omega_minus = []
         for i in range(n):
             sub_ngram = ngram[:i] + ngram[i + 1:]
-            if sub_ngram in n_grams:
-                omega_minus.append(get_glue_value(glue_type, n_grams[sub_ngram]))
+            if sub_ngram in local_n_grams:
+                omega_minus.append(get_glue_value(glue_type, local_n_grams[sub_ngram]))
         omega_n_minus_one = max(omega_minus) if omega_minus else 0.0
 
         omega_n_plus_one = 0.0
-        if n + 1 <= n_max:
-            for cand_ngram, cand_data in n_grams.items():
-                if len(cand_ngram) == n + 1:
-                    for i in range(n + 1):
-                        if cand_ngram[i:i + n] == ngram:
-                            omega_n_plus_one = max(
-                                omega_n_plus_one, get_glue_value(glue_type, cand_data)
-                            )
-                            break
+        if n + 1 <= n_max and ngram in super_ngram_index:
+            for super_ngram in super_ngram_index[ngram]:
+                if super_ngram in local_n_grams:
+                    omega_n_plus_one = max(
+                        omega_n_plus_one,
+                        get_glue_value(glue_type, local_n_grams[super_ngram])
+                    )
+
         results.append((ngram, omega_n_minus_one, omega_n_plus_one))
     return results
+
+
+def build_super_ngram_index(n_grams):
+    super_ngram_index = defaultdict(set)
+    for cand_ngram in n_grams:
+        n = len(cand_ngram)
+        if n <= 1:
+            continue
+        for i in range(n):
+            sub_ngram = cand_ngram[:i] + cand_ngram[i + 1:]
+            super_ngram_index[sub_ngram].add(cand_ngram)
+    return super_ngram_index
+
 
 class Extractor:
     """
@@ -211,7 +223,7 @@ class Extractor:
         Each result is saved in the corresponding attribute of the NGramData object.
         """
         glue_func = self.glue_functions.get(self.glue_type)
-        for words, data in tqdm(self.n_grams.items(), desc="Calculating glue values", unit="n-gram", mininterval=50000):
+        for words, data in tqdm(self.n_grams.items(), desc="Calculating glue values", unit="n-gram", miniters=50000):
             if len(words) > 1:
                 glue_func(words, data)
 
@@ -252,26 +264,22 @@ class Extractor:
         with open(file_path, "w") as f:
             print(self, file=f)
     
-    def print_top_n_glue(self, n: int = 10, glue: str = None):
+    def print_top_n_glue(self, n: int = 10):
         """
         Prints the top n n-grams by the glue function specified in the glue parameter.
         """
-        if glue:
-            self.glue_type = glue
         # sort the n-grams by the glue function
-        self.sort_by_glue(glue)
+        self.sort_by_glue()
         # print the top n n-grams
         for i, (words, data) in enumerate(list(self.n_grams.items())[:n]):
             print(f"{i + 1}: {words} : {data}")
 
-    def print_all(self, glue: str = None):
+    def print_all(self):
         """
         Prints the top n n-grams by the glue function specified in the glue parameter.
         """
-        if glue:
-            self.glue_type = glue
         # sort the n-grams by the glue function
-        self.sort_by_glue(glue)
+        self.sort_by_glue()
         # print the top n n-grams
         for i, (words, data) in enumerate(list(self.n_grams.items())):
             print(f"{i + 1}: {words} : {data}")
@@ -290,25 +298,21 @@ class Extractor:
         
         return precision, recall, f1
     
-    def print_bottom_n_glue(self, n: int = 10, glue: str = None):
+    def print_bottom_n_glue(self, n: int = 10):
         """
         Prints the bottom n n-grams by the glue function specified in the glue parameter.
         """
-        if glue:
-            self.glue_type = glue
         # sort the n-grams by the glue function
-        self.sort_by_glue(glue)
+        self.sort_by_glue()
         # print the bottom n n-grams
         for i, (words, data) in enumerate(list(self.n_grams.items())[-n:]):
             print(f"{i + 1}: {words} : {data}")
 
-    def extract_explicit_keywords(self, top_n: int = 15, glue: str = None):
+    def extract_explicit_keywords(self, top_n: int = 15):
         """
         Extracts the top-N relevant expressions as explicit keywords from MWEs.
         """
-        if glue:
-            self.glue_type = glue
-        self.sort_by_glue(glue)
+        self.sort_by_glue()
         return list(self.MWEs)[:top_n]
 
     def extract_implicit_keywords(self, explicit_keywords, top_n=10):
@@ -374,40 +378,52 @@ class Extractor:
     
     def parallel_calculate_Omegas(self, num_workers: int = None):
 
-        # Split n-gram keys into chunks
-        ngram_list = list(self.n_grams.keys())
+        if num_workers is None:
+            num_workers = max(1, cpu_count(logical=False) - 1)
+
+        ngram_list = [k for k in self.n_grams if len(k) > 1]
         chunk_size = math.ceil(len(ngram_list) / num_workers)
         ngram_chunks = [ngram_list[i:i + chunk_size] for i in range(0, len(ngram_list), chunk_size)]
 
-        # Prepare only the necessary subset of n_grams for each chunk
-        chunk_args = []
-        for chunk in tqdm(ngram_chunks, desc="Preparing chunks for parallel processing", unit="chunk"):
-            relevant_subset = extract_relevant_ngrams(chunk, self.n_grams, self.n_max)
-            chunk_args.append((chunk, relevant_subset, self.glue_type, self.n_max))
+        print("Building super-ngram index...")
+        super_ngram_index = build_super_ngram_index(self.n_grams)
 
-        # Run in parallel
+        print("Preparing relevant n-grams per chunk...")
+        local_dicts = []
+        for chunk in ngram_chunks:
+            relevant_keys = set(chunk)
+            for ngram in chunk:
+                n = len(ngram)
+                for i in range(n):
+                    sub_ngram = ngram[:i] + ngram[i + 1:]
+                    relevant_keys.add(sub_ngram)
+                if ngram in super_ngram_index:
+                    relevant_keys.update(super_ngram_index[ngram])
+            local_dict = {k: self.n_grams[k] for k in relevant_keys if k in self.n_grams}
+            local_dicts.append(local_dict)
+
         with ProcessPoolExecutor(max_workers=num_workers) as executor:
             futures = [
-                executor.submit(compute_omega_chunk, *args)
-                for args in chunk_args
+                executor.submit(compute_omega_chunk, chunk, local_dicts[i], self.glue_type, self.n_max, super_ngram_index)
+                for i, chunk in enumerate(ngram_chunks)
             ]
 
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Calculating Ω", unit="process"):
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Calculating Ω", unit="chunks"):
                 for ngram, omega_minus, omega_plus in future.result():
-                    if ngram in self.n_grams and omega_minus is not None:
+                    if ngram in self.n_grams:
                         self.n_grams[ngram].omega_n_minus_one = omega_minus
                         self.n_grams[ngram].omega_n_plus_one = omega_plus
 
+
     def find_MWEs(self, stopwords=set(), parallel: bool = False, n_workers: int = None):
         
-        glue = self.glue_type  
         if parallel:
             if n_workers is None:
                 n_workers = max(1, cpu_count(logical=False) - 1)
             tqdm.write(f"Using {n_workers} workers for parallel processing.")
             self.parallel_calculate_Omegas(n_workers)
         else:
-            self.calculate_Omegas(glue)
+            self.calculate_Omegas()
         p = self.p  # Assume p is defined in your class somewhere
         
         MWEs = []
