@@ -161,8 +161,7 @@ class Extractor:
 
 
     def calculate_dice(self, ngram_words, ngram_data):
-        pass
-        """         
+       
         n = len(ngram_words)
         if n == 2:
             p1 = self.find_frequency((ngram_words[0],))
@@ -183,11 +182,9 @@ class Extractor:
         p_full = self.find_frequency(ngram_words)
         if F > 0:
             ngram_data.dice = (p_full * 2) / F 
-        """
 
     def calculate_phi_square(self, ngram_words, ngram_data):
-        pass
-        """ n = len(ngram_words)
+        n = len(ngram_words)
         N = self.corpus_size
         f_full = self.find_frequency(ngram_words)
         ngram_data.phi_square = 0
@@ -205,7 +202,7 @@ class Extractor:
                 phi_values.append(phi)
         
         if phi_values:
-            ngram_data.phi_square = sum(phi_values) / len(phi_values) """
+            ngram_data.phi_square = sum(phi_values) / len(phi_values) 
 
 
     ####
@@ -351,29 +348,24 @@ class Extractor:
         return max(omega_minus) if omega_minus else 0.0
 
 
-    def calculate_omega_plus_one(self, ngram):
-
-        n = len(ngram)
+    def calculate_omega_plus_one(self, ngram, super_ngram_index):
         omega_plus = []
-        if n + 1 <= self.n_max:
-            for (cand_ngram, cand_data) in self.n_grams.items():
-                if len(cand_ngram) == n + 1:
-                    for i in range(n + 1):
-                        if cand_ngram[i:i + n] == ngram:
-                            omega_plus.append(get_glue_value(self.glue_type, cand_data))
-                            break
+        for supergram in super_ngram_index.get(ngram, []):
+            if supergram in self.n_grams:  
+                omega_plus.append(get_glue_value(self.glue_type, self.n_grams[supergram]))
         return max(omega_plus) if omega_plus else 0.0
 
 
     def calculate_Omegas(self):
+        super_ngram_index = build_super_ngram_index(self.n_grams)
 
         for ngram, data in tqdm(self.n_grams.items(), desc="Calculating Ω values",
-                                 unit="n-gram", miniters=200):
+                                unit="n-gram", miniters=200):
             n = len(ngram)
             if n == 1:
                 continue
             data.omega_n_minus_one = self.calculate_omega_minus_one(ngram)
-            data.omega_n_plus_one = self.calculate_omega_plus_one(ngram)
+            data.omega_n_plus_one = self.calculate_omega_plus_one(ngram, super_ngram_index)
         
     
     def parallel_calculate_Omegas(self, num_workers: int = None):
@@ -408,7 +400,7 @@ class Extractor:
                 for i, chunk in enumerate(ngram_chunks)
             ]
 
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Calculating Ω", unit="chunks"):
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Calculating Ω", unit="worker"):
                 for ngram, omega_minus, omega_plus in future.result():
                     if ngram in self.n_grams:
                         self.n_grams[ngram].omega_n_minus_one = omega_minus
