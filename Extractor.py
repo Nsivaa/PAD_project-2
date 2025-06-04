@@ -17,28 +17,6 @@ def get_glue_value(glue_type, data: NGramData):
         "phi_square": data.phi_square
     }[glue_type]
 
-# function to extract relevant n-grams for omega calculations
-# needed to define only the relevant n-grams for each n-gram in the corpus, 
-# to avoid sending the full n-gram dictionary to each process and have mamory issues
-def extract_relevant_ngrams(chunk, full_n_grams_by_len, n_max):
-    relevant_keys = set(chunk)
-    for ngram in chunk:
-        n = len(ngram)
-        if n > 1:
-            for i in range(n):
-                sub_ngram = ngram[:i] + ngram[i + 1:]
-                relevant_keys.add(sub_ngram)
-        if n + 1 <= n_max:
-            for cand_ngram in full_n_grams_by_len.get(n + 1, []):
-                if len(cand_ngram) == n + 1:
-                    for i in range(n + 1):
-                        if cand_ngram[i:i + n] == ngram:
-                            relevant_keys.add(cand_ngram)
-                            break
-    # Trim to only relevant n_grams
-    return {k: full_n_grams_by_len[k] for k in relevant_keys if k in full_n_grams_by_len}
-
-
 
 # parallel function to compute omega values for n-grams
 def compute_omega_chunk(ngram_chunk, local_n_grams, glue_type, n_max, super_ngram_index):
@@ -46,6 +24,7 @@ def compute_omega_chunk(ngram_chunk, local_n_grams, glue_type, n_max, super_ngra
     for ngram in ngram_chunk:
         n = len(ngram)
 
+        # Omega- calculation
         omega_minus = []
         for i in range(n):
             sub_ngram = ngram[:i] + ngram[i + 1:]
@@ -232,7 +211,9 @@ class Extractor:
         """
         # for every size of the n-grams, up to n_max. also stores unigrams
         for i in tqdm(range(1, self.n_max + 1), desc=f"Finding n-grams"): 
-            range_limit = len(self.corpus) - i + 1 if not limit else limit
+            # if limit is specified, only process up to that many n-grams
+            corpus_limit = len(self.corpus) - i + 1
+            range_limit = corpus_limit if not limit or limit > corpus_limit else limit
             for j in tqdm(range(0, range_limit), mininterval=50000, unit="n-gram", desc=f"Finding n-grams of size {i} in corpus"):
             # create an n-gram of size i and store it in the dictionary if it doesn't exist, else increase its frequency by 1
                 words = tuple(self.corpus[j:j + i])
