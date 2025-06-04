@@ -397,7 +397,7 @@ class Extractor:
             self.parallel_calculate_Omegas(n_workers)
         else:
             self.calculate_Omegas()
-        p = self.p  # Assume p is defined in your class somewhere
+        p = self.p  
         
         MWEs = []
 

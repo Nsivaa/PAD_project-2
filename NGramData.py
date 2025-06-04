@@ -9,9 +9,6 @@ class NGramData:
         self.phi_square = 0.0
         self.omega_n_plus_one = 0.0
         self.omega_n_minus_one = 0.0
-        self.relevant_scp = False
-        self.relevant_dice = False
-        self.relevant_phi_square = False
 
     def __str__(self) -> str:
         """
